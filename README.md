@@ -15,7 +15,7 @@ The script requires Python 3.
 ## Use
 
 ```
-usage: gin [-h] [-j] [-v] [path]
+usage: gin [-h] [--uid UID] [--gid GID] [-j] [-v] [path]
 
 parse a Git index file
 
@@ -24,6 +24,8 @@ positional arguments:
 
 optional arguments:
   -h, --help     show this help message and exit
+  --uid UID      Uid to update
+  --gid GID      Uid to update
   -j, --json     output JSON
   -v, --version  show script version number
 ```
