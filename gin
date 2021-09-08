@@ -4,6 +4,7 @@ version = "0.1.006"
 
 # https://github.com/git/git/blob/master/Documentation/technical/index-format.txt
 
+import os
 import binascii
 import collections
 import json
@@ -16,9 +17,15 @@ def check(boolean, message):
         print("error: " + message, file=sys.stderr)
         sys.exit(1)
 
-def parse(filename, pretty=True):
-    with open(filename, "rb") as o:
-        f = mmap.mmap(o.fileno(), 0, prot=mmap.PROT_READ)
+def parse(filename, args, pretty=True):
+    if args.uid is not None or args.gid is not None:
+        openmode="r+b"
+        prot = mmap.PROT_READ|mmap.PROT_WRITE
+    else:
+        openmode="rb"
+        prot = mmap.PROT_READ
+    with open(filename, openmode) as o:
+        f = mmap.mmap(o.fileno(), 0, prot=prot)
 
         def read(format):
             # "All binary numbers are in network byte order."
@@ -26,6 +33,22 @@ def parse(filename, pretty=True):
             format = "! " + format
             bytes = f.read(struct.calcsize(format))
             return struct.unpack(format, bytes)[0]
+
+        def update(format, *args):
+            # "All binary numbers are in network byte order."
+            # Hence "!" = network order, big endian
+            format = "! " + format
+            bytes = f.read(struct.calcsize(format))
+            rv = struct.unpack(format, bytes)[0]
+            if args[0] is not None:
+                f.seek(-struct.calcsize(format), os.SEEK_CUR)
+                wbytes = f.write(struct.pack(format, *args))
+                # f[:8] = struct.pack('ii', 123, 7901)
+                f.seek(-struct.calcsize(format), os.SEEK_CUR)
+                ubytes = f.read(struct.calcsize(format))
+                urv = struct.unpack(format, ubytes)[0]
+                # print('Updating {} to {}'.format(rv, urv))
+            return rv
 
         index = collections.OrderedDict()
 
@@ -72,8 +95,10 @@ def parse(filename, pretty=True):
             if pretty:
                 entry["mode"] = "%06o" % entry["mode"]
 
-            entry["uid"] = read("I")
-            entry["gid"] = read("I")
+            # entry["uid"] = read("I")
+            entry["uid"] = update("I", args.uid)
+
+            entry["gid"] = update("I", args.gid)
             entry["size"] = read("I")
 
             entry["sha1"] = binascii.hexlify(f.read(20)).decode("ascii")
@@ -150,9 +175,15 @@ def parse(filename, pretty=True):
         checksum["sha1"] = binascii.hexlify(f.read(20)).decode("ascii")
         yield checksum
 
+        if openmode=='r+b':
+            f.flush()
         f.close()
 
-def parse_file(arg, pretty=True):
+def parse_file(arg, optargs, pretty=True):
+    if optargs.uid is not None or optargs.gid is not None:
+        show=False
+    else:
+        show=True
     if pretty:
        properties = {
            "version": "[header]",
@@ -163,7 +194,9 @@ def parse_file(arg, pretty=True):
     else:
         print("[")
 
-    for item in parse(arg, pretty=pretty):
+    for item in parse(arg, optargs, pretty=pretty):
+        if not show:
+            continue
         if pretty:
             for key, value in properties.items():
                 if key in item:
@@ -194,6 +227,10 @@ def main():
     import sys
 
     parser = argparse.ArgumentParser(description="parse a Git index file")
+    parser.add_argument("--uid", type=int, default=None,
+        help="Uid to update")
+    parser.add_argument("--gid", type=int, default=None,
+        help="Uid to update")
     parser.add_argument("-j", "--json", action="store_true",
         help="output JSON")
     parser.add_argument("-v", "--version", action="store_true",
@@ -219,7 +256,7 @@ def main():
         parser.print_usage()
         sys.exit(2)
 
-    parse_file(args.path, pretty=not args.json)
+    parse_file(args.path, args, pretty=not args.json)
 
 if __name__ == "__main__":
     main()
